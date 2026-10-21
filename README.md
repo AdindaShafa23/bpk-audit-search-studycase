@@ -1,12 +1,5 @@
 # Pencarian Dokumen Audit BPK — Implementasi Arsitektur Studi Kasus
 
-Implementasi lengkap (berbasis Docker) untuk studi kasus: **pencarian isi dokumen audit**
-(PDF asli maupun hasil scan), **toleran kata berimbuhan & salah ketik**, **dashboard per lembaga
-yang ikut terbarui otomatis**, serta **OCR berat yang tidak membuat unggahan lambat/timeout**.
-
-> Semua data contoh bersifat **fiktif** dan dibuat oleh seeder untuk keperluan demo.
-
----
 
 ## 1. Masalah → Solusi
 
@@ -26,18 +19,17 @@ yang ikut terbarui otomatis**, serta **OCR berat yang tidak membuat unggahan lam
 
 ![Arsitektur](docs/arsitektur.png)
 
-*(Versi vektor: [`docs/arsitektur.svg`](docs/arsitektur.svg))*
 
 ### Penjelasan alur (sesuai nomor pada gambar)
 
-**① – ④ Jalur unggah (sinkron, cepat)**
+**1 - 4 Jalur unggah (sinkron, cepat)**
 1. Browser mengirim file ke `POST /api/documents` (lewat Nginx).
 2. API menyimpan file asli ke **MinIO** (①), mencatat metadata + `status=queued` di **PostgreSQL** (②),
    lalu mengirim tugas ke **Redis** antrean `fast` (③).
 3. API langsung membalas **`202 Accepted`** (④). Tidak ada OCR/indeks di dalam request ini,
    sehingga waktu unggah tidak bergantung pada beratnya pemrosesan.
 
-**⑤ – ⑧ Jalur pemrosesan (asinkron)**
+**5 - 8 Jalur pemrosesan (asinkron)**
 4. **Worker FAST** mengambil tugas, mengunduh file dari MinIO, lalu mengekstrak **teks asli PDF**
    (PyMuPDF — sangat cepat).
 5. Jika ada halaman tanpa teks (hasil scan/gambar), tugas dilempar ke antrean **`ocr`** (⑤) dan
@@ -47,7 +39,7 @@ yang ikut terbarui otomatis**, serta **OCR berat yang tidak membuat unggahan lam
 7. Teks dianalisis (jenis dokumen, kategori belanja, nilai kontrak) dan diindeks ke **Elasticsearch** (⑦),
    lalu status di PostgreSQL menjadi `done` (⑧).
 
-**⑨ – ⑩ Jalur baca**
+**0 - 10 Jalur baca**
 - `GET /api/search` → query fuzzy + stemming + *highlight* (⑨).
 - `GET /api/dashboard` → agregasi (jumlah, total nilai kontrak, tren kategori per interval) (⑩) digabung
   dengan status antrean dari PostgreSQL. Frontend memanggilnya tiap 5 detik sehingga angka/grafik
@@ -236,28 +228,3 @@ Konkurensi worker: ubah `-c` pada `worker-fast` / `worker-ocr` di `docker-compos
 atau tambah replika dengan `--scale`.
 
 ---
-
-## 9. Pemecahan Masalah
-
-| Gejala | Penanganan |
-|---|---|
-| `elasticsearch` restart / *max virtual memory areas* | Linux: `sudo sysctl -w vm.max_map_count=262144` lalu `docker compose up -d` |
-| `elasticsearch` selalu *unhealthy* | Beri RAM lebih ke Docker (≥ 3 GB) dan tunggu ± 1 menit |
-| Port 8080/8000/9200 bentrok | Ubah pemetaan `ports` pada `docker-compose.yml` |
-| Dokumen lama di status `Antre` | Cek `docker compose logs worker-fast worker-ocr`; pastikan keduanya *Up* |
-| Hasil OCR kurang akurat | Naikkan `OCR_DPI` (mis. 300); kualitas scan sangat memengaruhi hasil |
-| Ingin mulai dari nol | `docker compose down -v && docker compose up -d --build` |
-
----
-
-## 10. Keterbatasan & Pengembangan Lanjutan
-
-- Satu node Elasticsearch tanpa replika dan tanpa autentikasi — **hanya untuk demo/pengembangan**.
-  Produksi: klaster ES (≥ 3 node), TLS + autentikasi, kredensial lewat *secret*, MinIO/S3 terkelola.
-- Klasifikasi/ekstraksi nilai kontrak berbasis aturan; akurasi untuk format dokumen yang beragam dapat
-  ditingkatkan dengan model NER/LLM.
-- Belum ada autentikasi pengguna/otorisasi per lembaga; tambahkan (mis. OIDC) sebelum dipakai nyata.
-- Skala besar (ribuan dokumen/hari terus-menerus): tambahkan replika `worker-ocr`, pisahkan node worker
-  OCR (CPU), dan pertimbangkan antrean berprioritas atau Kafka bila butuh *replay* & integrasi lebih luas.
-- Alur pembaruan indeks dapat dibuat berbasis *change-data-capture* (mis. Debezium) bila sumber
-  kebenarannya dipindah ke basis data transaksional.
