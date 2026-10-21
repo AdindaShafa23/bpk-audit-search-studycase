@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pencarian Dokumen Audit – Demo BPK</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">▤</div>
+    <div>
+      <h1>Pencarian Dokumen Audit</h1>
+      <p>Studi kasus arsitektur data BPK · data demo fiktif</p>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="search" role="tab">Pencarian</button>
+    <button class="tab" data-tab="dashboard" role="tab">Dashboard Lembaga</button>
+    <button class="tab" data-tab="upload" role="tab">Unggah &amp; Antrean</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ============================ PENCARIAN ============================ -->
+  <section id="tab-search" class="panel active">
+    <form id="search-form" class="searchbar" autocomplete="off">
+      <input id="q" type="search" placeholder='Cari isi dokumen, mis. "bahan bakar", "jasa konsultasi", "blanja modaal"…' autofocus>
+      <button type="submit" class="btn primary">Cari</button>
+    </form>
+    <div class="filters">
+      <label>Lembaga <select id="f-inst"><option value="">Semua</option></select></label>
+      <label>Kategori <select id="f-cat"><option value="">Semua</option></select></label>
+      <label>Jenis <select id="f-type"><option value="">Semua</option>
+        <option>Kontrak</option><option>Nota</option><option>Laporan Realisasi</option><option>Lainnya</option></select></label>
+      <div class="chips" id="examples">
+        Coba:
+        <button type="button" class="chip">bahan bakar</button>
+        <button type="button" class="chip">jasa konsultasi</button>
+        <button type="button" class="chip">blanja modaal</button>
+        <button type="button" class="chip">pengadaan gedung</button>
+      </div>
+    </div>
+    <div id="search-meta" class="meta"></div>
+    <div id="results"></div>
+    <div id="pager" class="pager"></div>
+  </section>
+
+  <!-- ============================= DASHBOARD ============================ -->
+  <section id="tab-dashboard" class="panel">
+    <div class="toolbar">
+      <label>Lembaga <select id="d-inst"><option value="">Semua lembaga</option></select></label>
+      <label>Interval tren
+        <select id="d-int"><option value="week">Mingguan</option><option value="day">Harian</option><option value="month">Bulanan</option></select>
+      </label>
+      <span class="live"><i class="dot"></i> Auto-update tiap 5 detik · <span id="d-updated">–</span></span>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><span>Dokumen masuk</span><b id="k-in">–</b><small id="k-in-sub"></small></div>
+      <div class="kpi"><span>Sudah terindeks</span><b id="k-idx">–</b><small id="k-ocr"></small></div>
+      <div class="kpi"><span>Total nilai kontrak</span><b id="k-val">–</b><small id="k-cnt"></small></div>
+      <div class="kpi"><span>Antrean / proses</span><b id="k-q">–</b><small id="k-fail"></small></div>
+    </div>
+
+    <div class="pipeline" id="pipeline"></div>
+
+    <div class="grid2">
+      <div class="card wide"><h3>Tren kategori belanja</h3><div class="chartbox"><canvas id="c-trend"></canvas></div></div>
+      <div class="card"><h3>Komposisi kategori</h3><div class="chartbox"><canvas id="c-cat"></canvas></div></div>
+    </div>
+
+    <div class="card">
+      <h3>Rekap per lembaga</h3>
+      <table class="tbl" id="t-inst">
+        <thead><tr><th>Lembaga</th><th class="num">Dokumen masuk</th><th class="num">Terindeks</th><th class="num">Total nilai kontrak</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================== UNGGAH ============================== -->
+  <section id="tab-upload" class="panel">
+    <div class="grid2">
+      <div class="card">
+        <h3>Unggah dokumen</h3>
+        <form id="upload-form">
+          <label class="field">Lembaga yang diaudit
+            <input id="u-inst" list="inst-list" required placeholder="mis. Kementerian Kesehatan">
+            <datalist id="inst-list"></datalist>
+          </label>
+          <label class="field">Tanggal dokumen
+            <input id="u-date" type="date">
+          </label>
+          <div id="drop" class="drop">
+            <input id="u-files" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" hidden>
+            <p><b>Tarik file ke sini</b> atau <a href="#" id="pick">pilih file</a></p>
+            <small>PDF (asli / hasil scan), PNG, JPG, TIFF</small>
+            <ul id="u-list"></ul>
+          </div>
+          <button class="btn primary" type="submit" id="u-btn">Unggah</button>
+          <p id="u-msg" class="note"></p>
+        </form>
+      </div>
+      <div class="card">
+        <h3>Cara kerja</h3>
+        <ol class="how">
+          <li>File disimpan ke object storage &amp; antrean, API langsung membalas <code>202 Accepted</code>.</li>
+          <li>Worker <b>fast</b> mengambil teks asli PDF.</li>
+          <li>Halaman scan dikirim ke worker <b>OCR</b> (Tesseract) di antrean terpisah.</li>
+          <li>Teks diindeks ke Elasticsearch → pencarian &amp; dashboard ikut berubah otomatis.</li>
+        </ol>
+        <p class="note">Perhatikan waktu respons unggah di bawah form: tetap singkat walau OCR berat.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Dokumen terbaru &amp; status pemrosesan <span class="live"><i class="dot"></i> live</span></h3>
+      <table class="tbl" id="t-docs">
+        <thead><tr><th>Berkas</th><th>Lembaga</th><th>Status</th><th>Jenis</th><th>Kategori</th><th class="num">Nilai kontrak</th><th>OCR</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="vendor/chart.umd.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

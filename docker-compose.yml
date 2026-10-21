@@ -1,0 +1,115 @@
+name: bpk-audit-search
+
+x-backend: &backend
+  build: ./backend
+  environment: &backend-env
+    POSTGRES_DSN: postgresql://bpk:bpk@postgres:5432/bpk
+    REDIS_URL: redis://redis:6379/0
+    ES_URL: http://elasticsearch:9200
+    MINIO_ENDPOINT: minio:9000
+    MINIO_ACCESS_KEY: minioadmin
+    MINIO_SECRET_KEY: minioadmin
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    elasticsearch:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+
+services:
+  # ---------- Lapisan penyimpanan ----------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bpk
+      POSTGRES_PASSWORD: bpk
+      POSTGRES_DB: bpk
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bpk -d bpk"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9001:9001"      # konsol MinIO (opsional)
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    ports:
+      - "9200:9200"      # opsional, untuk inspeksi
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 8s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ---------- Aplikasi ----------
+  api:
+    <<: *backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"      # Swagger: http://localhost:8000/docs
+
+  # Worker cepat: ekstrak teks asli PDF + indeks. Banyak proses, ringan.
+  worker-fast:
+    <<: *backend
+    command: celery -A app.tasks.celery_app worker -Q fast -c 4 -n fast@%h --loglevel=INFO
+
+  # Worker OCR: berat (CPU). Skala dengan: docker compose up -d --scale worker-ocr=3
+  worker-ocr:
+    <<: *backend
+    command: celery -A app.tasks.celery_app worker -Q ocr -c 2 -n ocr@%h --loglevel=INFO
+
+  frontend:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  miniodata:
+  esdata:
+  redisdata:
